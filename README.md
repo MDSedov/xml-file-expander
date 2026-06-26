@@ -13,6 +13,18 @@
 scripts/analyze_xml.sh /path/to/source.xml > xml-analysis.txt
 ```
 
+Если скрипт запускается из каталога `scripts`, используйте:
+
+```bash
+./analyze_xml.sh /path/to/source.xml > xml-analysis.txt
+```
+
+Или явно через `bash`:
+
+```bash
+bash scripts/analyze_xml.sh /path/to/source.xml > xml-analysis.txt
+```
+
 Анализатор не печатает текстовые значения из XML. В отчете будут только
 структура файла, повторяющиеся пути, длины полей, предполагаемые типы значений
 и выборочная оценка уникальности полей.

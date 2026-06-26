@@ -318,8 +318,8 @@ def top_items(counter, limit):
 
 def format_repeat_candidate(path, count, analyzer):
     avg_subtree = analyzer.subtree_totals[path] / count
-    children = analyzer.direct_child_names.get(path, {})
-    attrs = analyzer.path_attr_names.get(path, {})
+    children = analyzer.direct_child_names.get(path, collections.Counter())
+    attrs = analyzer.path_attr_names.get(path, collections.Counter())
     return (
         f"{shorten(path)} count={fmt_int(count)} "
         f"avg_subtree_elements={avg_subtree:.1f} "
