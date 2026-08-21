@@ -5,3 +5,9 @@ scripts/*.jpg
 xml-analysis.txt
 safe-sample.xml
 *.expanded.xml
+
+# Spring Boot build and local output.
+target/
+output/
+.idea/
+*.iml

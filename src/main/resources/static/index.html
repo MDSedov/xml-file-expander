@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>XML File Expander</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<main class="shell">
+    <header class="hero">
+        <div>
+            <div class="eyebrow">Локальный инструмент нагрузочного тестирования</div>
+            <h1>XML File Expander</h1>
+            <p class="hero-copy">
+                Выберите XML, проверьте план и создайте увеличенную копию без загрузки
+                содержимого в память целиком.
+            </p>
+        </div>
+        <div class="badges" aria-label="Свойства приложения">
+            <span>localhost</span>
+            <span>потоковая обработка</span>
+            <span>без внешних сервисов</span>
+        </div>
+    </header>
+
+    <section class="panel" aria-labelledby="source-title">
+        <div class="panel-heading">
+            <div class="step">1</div>
+            <div>
+                <h2 id="source-title">Исходный файл и параметры</h2>
+                <p>Сначала приложение загрузит файл во временный каталог и построит план.</p>
+            </div>
+        </div>
+
+        <form id="plan-form">
+            <label class="file-picker" for="xml-file">
+                <input id="xml-file" name="file" type="file" accept=".xml,text/xml,application/xml" required>
+                <span class="file-icon" aria-hidden="true">XML</span>
+                <span>
+                    <strong id="file-label">Выбрать XML-файл</strong>
+                    <small>До 2 ГБ. Исходный файл не изменяется.</small>
+                </span>
+            </label>
+
+            <div class="form-grid two-columns">
+                <fieldset>
+                    <legend>Способ увеличения</legend>
+                    <div class="segmented">
+                        <label>
+                            <input type="radio" name="mode" value="target" checked>
+                            <span>До размера</span>
+                        </label>
+                        <label>
+                            <input type="radio" name="mode" value="fixed">
+                            <span>Число копий</span>
+                        </label>
+                    </div>
+                </fieldset>
+
+                <label id="target-size-group">
+                    <span>Целевой размер</span>
+                    <input name="targetSize" value="1.5GiB" autocomplete="off" required>
+                    <small>Например: 80MiB, 1.5GiB или 1600MB</small>
+                </label>
+
+                <label id="fixed-copies-group" class="hidden">
+                    <span>Дополнительных копий каждой записи</span>
+                    <input name="fixedExtraCopies" type="number" min="0" value="1">
+                    <small>Исходная запись всегда сохраняется.</small>
+                </label>
+            </div>
+
+            <details class="advanced">
+                <summary>Расширенные параметры</summary>
+                <div class="form-grid two-columns advanced-grid">
+                    <label>
+                        <span>Родитель коллекций</span>
+                        <input name="autoParent" value="/asx:abap/asx:values">
+                    </label>
+                    <label>
+                        <span>Имя элемента записи</span>
+                        <input name="autoItem" value="item">
+                    </label>
+                    <label>
+                        <span>Явные пути записей</span>
+                        <textarea name="paths" rows="4" placeholder="Один абсолютный XML-путь на строку. Оставьте пустым для автоматического поиска."></textarea>
+                    </label>
+                    <label>
+                        <span class="label-with-action">
+                            Уникальные поля
+                            <button id="fill-unique-fields" type="button" class="text-button">Подставить рекомендуемые</button>
+                        </span>
+                        <textarea id="unique-fields" name="uniqueFields" rows="4" placeholder="Относительный путь внутри item, по одному на строку. По умолчанию значения не меняются."></textarea>
+                    </label>
+                </div>
+            </details>
+
+            <div id="plan-error" class="alert error hidden" role="alert"></div>
+            <div class="actions">
+                <button id="plan-button" class="primary" type="submit">Загрузить и построить план</button>
+                <span id="plan-working" class="working hidden"><i></i> Чтение и анализ XML…</span>
+            </div>
+        </form>
+    </section>
+
+    <section id="plan-panel" class="panel hidden" aria-labelledby="plan-title">
+        <div class="panel-heading">
+            <div class="step">2</div>
+            <div>
+                <h2 id="plan-title">План расширения</h2>
+                <p id="plan-file-name"></p>
+            </div>
+        </div>
+
+        <div class="metrics">
+            <article><span>Исходный размер</span><strong id="metric-source">—</strong></article>
+            <article><span>Оценка результата</span><strong id="metric-output">—</strong></article>
+            <article><span>Полных доп. копий</span><strong id="metric-copies">—</strong></article>
+            <article><span>Байт записей</span><strong id="metric-records">—</strong></article>
+        </div>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                <tr>
+                    <th>Путь коллекции</th>
+                    <th>Записей</th>
+                    <th>Объём</th>
+                    <th>Доля</th>
+                </tr>
+                </thead>
+                <tbody id="paths-table"></tbody>
+            </table>
+        </div>
+
+        <div class="output-form">
+            <label>
+                <span>Куда сохранить результат</span>
+                <input id="output-path" autocomplete="off">
+                <small>Путь относится к компьютеру, где запущено приложение.</small>
+            </label>
+            <label class="check-row">
+                <input id="overwrite" type="checkbox">
+                <span>Разрешить перезапись существующего файла</span>
+            </label>
+        </div>
+
+        <div id="job-error" class="alert error hidden" role="alert"></div>
+        <div class="actions">
+            <button id="start-button" class="primary" type="button">Начать расширение</button>
+            <button id="reset-button" class="secondary" type="button">Выбрать другой файл</button>
+        </div>
+    </section>
+
+    <section id="job-panel" class="panel hidden" aria-labelledby="job-title">
+        <div class="panel-heading">
+            <div class="step">3</div>
+            <div>
+                <h2 id="job-title">Создание файла</h2>
+                <p id="job-message">Задание поставлено в очередь</p>
+            </div>
+        </div>
+        <div class="progress-track" aria-label="Прогресс расширения">
+            <div id="progress-bar" class="progress-bar"></div>
+        </div>
+        <div class="progress-meta">
+            <strong id="progress-value">0%</strong>
+            <span id="job-output-path"></span>
+        </div>
+        <div id="result-summary" class="result-summary hidden"></div>
+    </section>
+
+    <footer>
+        Обработка выполняется локально. Перед работой с банковскими данными применяйте правила вашего контура ИБ.
+    </footer>
+</main>
+<script src="/app.js" defer></script>
+</body>
+</html>
