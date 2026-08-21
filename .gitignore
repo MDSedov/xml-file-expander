@@ -9,5 +9,6 @@ safe-sample.xml
 # Spring Boot build and local output.
 target/
 output/
+xml-file-expander-work/
 .idea/
 *.iml
