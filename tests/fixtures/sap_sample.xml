@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0">
+  <asx:values>
+    <ET_ORG>
+      <item>
+        <OBJNAME>Sensitive Org Alpha</OBJNAME>
+        <OBJFULLNAME>Sensitive Organization Alpha</OBJFULLNAME>
+        <DATEBEG>2025-01-01</DATEBEG>
+        <OBJTYPE>O</OBJTYPE>
+        <IDOBJ>10000001</IDOBJ>
+        <DYN_ATTR>
+          <PARENT><item><DATEBEG>2025-01-01</DATEBEG><VALUE>20000001</VALUE></item></PARENT>
+          <HRP9110><item><OBJID>10000001</OBJID><TERBANK>0001</TERBANK></item></HRP9110>
+        </DYN_ATTR>
+      </item>
+      <item>
+        <OBJNAME>Sensitive Org Beta</OBJNAME>
+        <OBJFULLNAME>Sensitive Organization Beta</OBJFULLNAME>
+        <DATEBEG>2025-02-01</DATEBEG>
+        <OBJTYPE>O</OBJTYPE>
+        <IDOBJ>10000002</IDOBJ>
+        <DYN_ATTR>
+          <PARENT><item><DATEBEG>2025-02-01</DATEBEG><VALUE>20000001</VALUE></item></PARENT>
+          <HRP9110><item><OBJID>10000002</OBJID><TERBANK>0001</TERBANK></item></HRP9110>
+        </DYN_ATTR>
+      </item>
+      <item>
+        <OBJNAME>Sensitive Org Gamma</OBJNAME>
+        <OBJFULLNAME>Sensitive Organization Gamma</OBJFULLNAME>
+        <DATEBEG>2025-03-01</DATEBEG>
+        <OBJTYPE>O</OBJTYPE>
+        <IDOBJ>10000003</IDOBJ>
+        <DYN_ATTR>
+          <PARENT><item><DATEBEG>2025-03-01</DATEBEG><VALUE>20000002</VALUE></item></PARENT>
+          <HRP9110><item><OBJID>10000003</OBJID><TERBANK>0002</TERBANK></item></HRP9110>
+        </DYN_ATTR>
+      </item>
+    </ET_ORG>
+    <ET_PERSON>
+      <item>
+        <IDPERS>30000001</IDPERS>
+        <EXTERNALMAIL>person.one@internal.bank.example</EXTERNALMAIL>
+        <SURNAME>SecretSurname</SURNAME>
+        <NAME>SecretName</NAME>
+        <DYN_ATTR>
+          <PA0290><item><PERNR>40000001</PERNR><BEGDA>2025-01-01</BEGDA></item></PA0290>
+        </DYN_ATTR>
+      </item>
+      <item>
+        <IDPERS>30000002</IDPERS>
+        <EXTERNALMAIL>person.two@internal.bank.example</EXTERNALMAIL>
+        <SURNAME>AnotherSurname</SURNAME>
+        <NAME>AnotherName</NAME>
+        <DYN_ATTR>
+          <PA0290><item><PERNR>40000002</PERNR><BEGDA>2025-02-01</BEGDA></item></PA0290>
+        </DYN_ATTR>
+      </item>
+      <item>
+        <IDPERS>30000003</IDPERS>
+        <EXTERNALMAIL>person.three@internal.bank.example</EXTERNALMAIL>
+        <SURNAME>ThirdSurname</SURNAME>
+        <NAME>ThirdName</NAME>
+        <DYN_ATTR>
+          <PA0290><item><PERNR>40000003</PERNR><BEGDA>2025-03-01</BEGDA></item></PA0290>
+        </DYN_ATTR>
+      </item>
+    </ET_PERSON>
+  </asx:values>
+</asx:abap>
