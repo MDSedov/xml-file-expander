@@ -1,0 +1,7 @@
+# Local screenshots that can contain environment details.
+scripts/*.jpg
+
+# Generated reports and XML files.
+xml-analysis.txt
+safe-sample.xml
+*.expanded.xml

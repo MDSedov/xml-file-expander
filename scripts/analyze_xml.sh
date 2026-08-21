@@ -4,12 +4,13 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  scripts/analyze_xml.sh [--top N] [--sample-limit N] /path/to/file.xml
+  scripts/analyze_xml.sh [--top N] [--sample-limit N] [--redact-file-name] /path/to/file.xml
 
 Options:
   --top N             Number of paths to show per section. Default: 12.
   --sample-limit N    Number of non-empty values sampled per field for
                       uniqueness checks. Default: 500.
+  --redact-file-name  Print [redacted] instead of the source file name.
 
 The report intentionally does not print XML text values. It prints structure,
 counts, text lengths, inferred value types, and sample uniqueness ratios.
@@ -18,6 +19,7 @@ USAGE
 
 TOP=12
 SAMPLE_LIMIT=500
+REDACT_FILE_NAME=0
 XML_FILE=""
 
 while [[ $# -gt 0 ]]; do
@@ -31,6 +33,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "Missing value for --sample-limit" >&2; exit 1; }
       SAMPLE_LIMIT="$2"
       shift 2
+      ;;
+    --redact-file-name)
+      REDACT_FILE_NAME=1
+      shift
       ;;
     -h|--help)
       usage
@@ -77,7 +83,7 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-python3 - "$XML_FILE" "$TOP" "$SAMPLE_LIMIT" <<'PY'
+python3 - "$XML_FILE" "$TOP" "$SAMPLE_LIMIT" "$REDACT_FILE_NAME" <<'PY'
 import collections
 import hashlib
 import os
@@ -95,6 +101,7 @@ except ImportError:  # pragma: no cover
 XML_FILE = sys.argv[1]
 TOP = int(sys.argv[2])
 SAMPLE_LIMIT = int(sys.argv[3])
+REDACT_FILE_NAME = bool(int(sys.argv[4]))
 TARGET_BYTES = int(1.5 * 1024 * 1024 * 1024)
 MAX_TEXT_CAPTURE = 1024
 
@@ -360,7 +367,8 @@ def main():
     multiplier = TARGET_BYTES / stat.st_size if stat.st_size else 0
 
     print("XML_ANALYSIS_V1")
-    print(f"file_name: {os.path.basename(XML_FILE)}")
+    file_name = "[redacted]" if REDACT_FILE_NAME else os.path.basename(XML_FILE)
+    print(f"file_name: {file_name}")
     print(f"file_size: {fmt_bytes(stat.st_size)}")
     print(f"target_1_5_gib_multiplier: x{multiplier:.2f}")
     print(f"xml_declaration: {decl}; encoding={encoding}; bom={bom}")
