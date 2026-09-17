@@ -142,6 +142,11 @@ public final class SapBranchPlan {
         }
         for (Node node : nodes.values()) {
             if (node.key.domain().equals("org")) {
+                // Some SAP exports encode an absent parent as literal NULL. Resolve this
+                // after indexing so an actual ID named NULL remains an ordinary reference.
+                node.parents.removeIf(this::isAbsentParentMarker);
+                node.references.removeIf(reference -> reference.field.equals(PARENT)
+                        && isAbsentParentMarker(reference.target.value()));
                 boolean rootShape = node.parents.isEmpty() || node.parents.equals(Set.of(node.key.value()));
                 if (rootShape && node.type.equals("O")) {
                     node.preserved = true;
@@ -175,6 +180,10 @@ public final class SapBranchPlan {
             if (!node.preserved) copied.add(node.key);
         }
         ids = new BranchIdAllocator(originals, copied);
+    }
+
+    private boolean isAbsentParentMarker(String value) {
+        return value.equalsIgnoreCase("NULL") && !nodes.containsKey(new Key("org", value));
     }
 
     private void validateParentGraph() {

@@ -107,9 +107,80 @@ class SapBranchExpansionTest {
         assertStructure(output, 2, true);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"NULL", "null", "  Null  "})
+    void preservesRootsWithNullParentMarkersAndCopiesTheirBranches(String marker) throws Exception {
+        String xml = Files.readString(FIXTURE).replace("<OBJNAME>Root A</OBJNAME><DYN_ATTR>",
+                "<OBJNAME>Root A</OBJNAME><DYN_ATTR><PARENT><item><VALUE>" + marker + "</VALUE></item></PARENT>");
+        Path source = directory.resolve("null-parent.xml");
+        Files.writeString(source, xml);
+        ExpansionOptions options = fixed(3, LINKS);
+        ExpansionPlan plan = service.buildPlan(source, options, ProgressListener.NONE);
+        Path output = directory.resolve("null-parent-expanded.xml");
+
+        ExpansionResult result = service.expand(source, output, options, plan, false, ProgressListener.NONE);
+
+        assertThat(plan.branches().rootCount()).isEqualTo(2);
+        assertThat(result.duplicatesWritten()).isEqualTo(15);
+        assertThat(result.outputBytes()).isEqualTo(plan.estimatedOutputBytes());
+        assertStructure(output, 3, true);
+        Element root = groups(parse(output), "ET_ORG", "OBJNAME").get("Root A").getFirst();
+        assertThat(value(root, "IDOBJ")).isEqualTo("10000367");
+        assertThat(root.getElementsByTagName("VALUE").item(0).getTextContent()).isEqualTo(marker);
+    }
+
     @Test
-    void rejectsDanglingParentWithoutTurningItIntoAnAutomaticRoot() throws Exception {
-        assertInvalid(Files.readString(FIXTURE).replace("<VALUE>90000002</VALUE>", "<VALUE>missing</VALUE>"), "Не найдена цель связи");
+    void nullMarkerAlongsideARealParentDoesNotCreateAnotherRoot() throws Exception {
+        String xml = Files.readString(FIXTURE).replace("<VALUE>90000001</VALUE></item></PARENT>",
+                "<VALUE>90000001</VALUE></item><item><VALUE>NULL</VALUE></item></PARENT>");
+        Path source = directory.resolve("mixed-parents.xml");
+        Files.writeString(source, xml);
+        ExpansionOptions options = fixed(2, LINKS);
+        ExpansionPlan plan = service.buildPlan(source, options, ProgressListener.NONE);
+        Path output = directory.resolve("mixed-parents-expanded.xml");
+
+        ExpansionResult result = service.expand(source, output, options, plan, false, ProgressListener.NONE);
+
+        assertThat(plan.branches().rootCount()).isEqualTo(2);
+        assertThat(result.outputBytes()).isEqualTo(plan.estimatedOutputBytes());
+        assertStructure(output, 2, true);
+        for (Element department : groups(parse(output), "ET_ORG", "OBJNAME").get("Department B")) {
+            assertThat(department.getElementsByTagName("VALUE").item(1).getTextContent()).isEqualTo("NULL");
+        }
+    }
+
+    @Test
+    void nullTextIsStillAReferenceWhenItMatchesAnActualOrgIdentifier() throws Exception {
+        Path source = directory.resolve("null-id.xml");
+        Files.writeString(source, Files.readString(FIXTURE).replace("90000002", "NULL"));
+        ExpansionOptions options = fixed(2, LINKS);
+        ExpansionPlan plan = service.buildPlan(source, options, ProgressListener.NONE);
+        Path output = directory.resolve("null-id-expanded.xml");
+
+        ExpansionResult result = service.expand(source, output, options, plan, false, ProgressListener.NONE);
+
+        assertThat(plan.branches().rootCount()).isEqualTo(2);
+        assertThat(result.outputBytes()).isEqualTo(plan.estimatedOutputBytes());
+        assertStructure(output, 2, true);
+    }
+
+    @Test
+    void nullParentDoesNotTurnAPositionIntoARoot() throws Exception {
+        assertInvalid(Files.readString(FIXTURE).replace("<VALUE>90000002</VALUE>", "<VALUE>NULL</VALUE>"),
+                "нет родителя, но OBJTYPE не O");
+    }
+
+    @Test
+    void nullMarkerDoesNotHideMissingReferencesInOtherFields() throws Exception {
+        assertInvalid(Files.readString(FIXTURE).replace("<VALUE>90000004</VALUE>", "<VALUE>NULL</VALUE>"),
+                "Не найдена цель связи DYN_ATTR/RELATED/item/VALUE=NULL");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"90000001", "90000002"})
+    void rejectsDanglingParentWithoutTurningItIntoAnAutomaticRoot(String parentId) throws Exception {
+        assertInvalid(Files.readString(FIXTURE).replace("<VALUE>" + parentId + "</VALUE>", "<VALUE>missing</VALUE>"),
+                "Не найдена цель связи");
     }
 
     @Test
