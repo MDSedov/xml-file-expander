@@ -16,6 +16,10 @@ import javax.xml.parsers.DocumentBuilderFactory;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
 import org.w3c.dom.NodeList;
 
 class XmlExpansionServiceTest {
@@ -113,6 +117,78 @@ class XmlExpansionServiceTest {
         assertThat(ids).hasSize(idNodes.getLength());
     }
 
+    @ParameterizedTest
+    @ValueSource(longs = {0, 1, 2})
+    void expandsCompactXmlWithFixedCopies(long extraCopies) throws Exception {
+        Path source = compactFixture();
+        ExpansionOptions options = ExpansionOptions.fixedCopies(
+                extraCopies, List.of(), null, null, List.of("IDOBJ"));
+        ExpansionPlan plan = service.buildPlan(source, options, ProgressListener.NONE);
+        Path output = temporaryDirectory.resolve("compact-fixed.xml");
+
+        ExpansionResult result = service.expand(
+                source, output, options, plan, false, ProgressListener.NONE);
+
+        Document document = parseXml(output);
+        assertCollectionSize(document, "ET_ORG", 3 * (extraCopies + 1));
+        assertCollectionSize(document, "ET_PERSON", 3 * (extraCopies + 1));
+        assertThat(result.duplicatesWritten()).isEqualTo(6 * extraCopies);
+        assertThat(result.mutatedFields()).isEqualTo(3 * extraCopies);
+        assertThat(result.outputBytes()).isEqualTo(plan.estimatedOutputBytes());
+        assertThat(plan.originalSerializedBytes()).isEqualTo(Files.size(source));
+    }
+
+    @Test
+    void expandsCompactXmlToTargetSize() throws Exception {
+        Path source = compactFixture();
+        ExpansionOptions options = ExpansionOptions.targetSize(
+                10L * 1024, List.of(), null, null, List.of());
+        ExpansionPlan plan = service.buildPlan(source, options, ProgressListener.NONE);
+        Path output = temporaryDirectory.resolve("compact-target.xml");
+
+        ExpansionResult result = service.expand(
+                source, output, options, plan, false, ProgressListener.NONE);
+
+        Document document = parseXml(output);
+        assertThat(result.outputBytes()).isBetween(
+                plan.requestedTargetBytes(),
+                plan.estimatedOutputBytes() + plan.maximumResidualOvershootBytes());
+        ExpansionPlan expandedPlan = service.buildPlan(output, options, ProgressListener.NONE);
+        for (TargetPathPlan path : expandedPlan.targetPaths()) {
+            String collection = path.path().split("/")[3];
+            assertThat(path.recordCount()).isGreaterThan(3);
+            assertCollectionSize(document, collection, path.recordCount());
+        }
+    }
+
+    @Test
+    void expandsCompactExplicitPathWithAttributesAndInheritedNamespace() throws Exception {
+        Path source = temporaryDirectory.resolve("namespaced.xml");
+        Files.writeString(source, """
+                <root xmlns:r="urn:test"><r:records label="A &amp; B"><r:item r:id="1"><r:value/></r:item></r:records><footer/></root>""");
+        ExpansionOptions options = ExpansionOptions.fixedCopies(
+                1, List.of("/root/r:records/r:item"), null, null, List.of());
+        ExpansionPlan plan = service.buildPlan(source, options, ProgressListener.NONE);
+        Path output = temporaryDirectory.resolve("namespaced-expanded.xml");
+
+        ExpansionResult result = service.expand(
+                source, output, options, plan, false, ProgressListener.NONE);
+
+        Document document = parseXml(output);
+        Element collection = (Element) document.getElementsByTagNameNS("urn:test", "records").item(0);
+        assertThat(collection.getAttribute("label")).isEqualTo("A & B");
+        assertThat(collection.getTextContent()).isEmpty();
+        NodeList items = collection.getElementsByTagNameNS("urn:test", "item");
+        assertThat(items.getLength()).isEqualTo(2);
+        for (int index = 0; index < items.getLength(); index++) {
+            Element item = (Element) items.item(index);
+            assertThat(item.getAttributeNS("urn:test", "id")).isEqualTo("1");
+            assertThat(item.getElementsByTagNameNS("urn:test", "value").getLength()).isEqualTo(1);
+        }
+        assertThat(document.getElementsByTagName("footer").getLength()).isEqualTo(1);
+        assertThat(result.outputBytes()).isEqualTo(plan.estimatedOutputBytes());
+    }
+
     @Test
     void refusesToOverwriteAnExistingOutputWithoutExplicitPermission() throws Exception {
         ExpansionOptions options = ExpansionOptions.fixedCopies(
@@ -130,6 +206,27 @@ class XmlExpansionServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("уже существует");
         assertThat(Files.readString(output)).isEqualTo("do-not-replace");
+    }
+
+    private Path compactFixture() throws Exception {
+        Path source = temporaryDirectory.resolve("compact.xml");
+        Files.writeString(source, Files.readString(FIXTURE).replaceAll(">\\s+<", "><").strip());
+        return source;
+    }
+
+    private static Document parseXml(Path path) throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        return factory.newDocumentBuilder().parse(path.toFile());
+    }
+
+    private static void assertCollectionSize(Document document, String name, long expected) {
+        Element collection = (Element) document.getElementsByTagName(name).item(0);
+        NodeList children = collection.getChildNodes();
+        assertThat(children.getLength()).isEqualTo((int) expected);
+        for (int index = 0; index < children.getLength(); index++) {
+            assertThat(children.item(index).getNodeName()).isEqualTo("item");
+        }
     }
 
     private static Map<String, Long> countsByPath(ExpansionPlan plan) {

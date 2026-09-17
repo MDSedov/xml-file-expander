@@ -61,8 +61,7 @@ public class XmlExpansionService {
                     if (isTargetPath(path, options)) {
                         XmlFragment fragment = XmlFragment.capture(reader);
                         byte[] bytes = fragment.toBytes(options.encoding(), Set.of(), 0);
-                        writer.flush();
-                        output.write(bytes);
+                        writeFragment(writer, output, bytes);
 
                         PathAccumulator accumulator = accumulators.computeIfAbsent(
                                 path, ignored -> new PathAccumulator());
@@ -226,8 +225,7 @@ public class XmlExpansionService {
                                 XmlFragment fragment = XmlFragment.capture(reader);
                                 byte[] originalFragment = fragment.toBytes(
                                         options.encoding(), Set.of(), 0);
-                                writer.flush();
-                                output.write(originalFragment);
+                                writeFragment(writer, output, originalFragment);
 
                                 for (long copy = 0; copy < plan.fullExtraCopiesPerRecord(); copy++) {
                                     writeDuplicate(
@@ -297,6 +295,17 @@ public class XmlExpansionService {
                 stats.outputBytes,
                 stats.duplicatesWritten,
                 stats.mutatedFields);
+    }
+
+    private static void writeFragment(
+            XMLStreamWriter writer,
+            OutputStream output,
+            byte[] fragment) throws XMLStreamException, IOException {
+        // flush() alone can leave a pending start tag open (e.g. "<ET_ORG").
+        // Empty character content closes it without adding whitespace to the XML.
+        writer.writeCharacters("");
+        writer.flush();
+        output.write(fragment);
     }
 
     private static void writeDuplicate(
