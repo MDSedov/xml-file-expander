@@ -12,7 +12,9 @@ public record ExpansionOptions(
         String autoParent,
         String autoItem,
         List<String> uniqueFields,
-        Charset encoding) {
+        Charset encoding,
+        List<RecordExclusion> recordExclusions,
+        List<BranchReference> branchReferences) {
 
     public static final String DEFAULT_AUTO_PARENT = "/asx:abap/asx:values";
     public static final String DEFAULT_AUTO_ITEM = "item";
@@ -28,6 +30,8 @@ public record ExpansionOptions(
                 autoParent == null || autoParent.isBlank() ? DEFAULT_AUTO_PARENT : autoParent);
         autoItem = autoItem == null || autoItem.isBlank() ? DEFAULT_AUTO_ITEM : autoItem.trim();
         encoding = Objects.requireNonNullElse(encoding, StandardCharsets.UTF_8);
+        recordExclusions = recordExclusions == null ? List.of() : List.copyOf(recordExclusions);
+        branchReferences = branchReferences == null ? null : List.copyOf(branchReferences);
 
         if (autoItem.contains("/")) {
             throw new IllegalArgumentException("Имя элемента записи не должно содержать '/'");
@@ -38,6 +42,32 @@ public record ExpansionOptions(
         if (fixedExtraCopies == null && targetSizeBytes <= 0) {
             throw new IllegalArgumentException("Целевой размер должен быть больше нуля");
         }
+    }
+
+    public ExpansionOptions(
+            long targetSizeBytes,
+            Long fixedExtraCopies,
+            List<String> targetPaths,
+            String autoParent,
+            String autoItem,
+            List<String> uniqueFields,
+            Charset encoding) {
+        this(targetSizeBytes, fixedExtraCopies, targetPaths, autoParent, autoItem,
+                uniqueFields, encoding, List.of(), null);
+    }
+
+    public ExpansionOptions withRecordExclusions(List<RecordExclusion> exclusions) {
+        return new ExpansionOptions(targetSizeBytes, fixedExtraCopies, targetPaths,
+                autoParent, autoItem, uniqueFields, encoding, exclusions, branchReferences);
+    }
+
+    public ExpansionOptions withSapBranches(List<BranchReference> references) {
+        return new ExpansionOptions(targetSizeBytes, fixedExtraCopies, targetPaths,
+                autoParent, autoItem, uniqueFields, encoding, recordExclusions, references);
+    }
+
+    public boolean branchMode() {
+        return branchReferences != null;
     }
 
     public static ExpansionOptions targetSize(
@@ -94,7 +124,7 @@ public record ExpansionOptions(
         return normalized;
     }
 
-    private static String normalizeRelativePath(String value) {
+    static String normalizeRelativePath(String value) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException("Путь уникального поля не может быть пустым");
         }

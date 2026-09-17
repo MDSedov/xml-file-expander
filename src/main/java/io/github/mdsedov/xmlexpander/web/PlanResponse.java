@@ -16,6 +16,8 @@ record PlanResponse(
         long residualExtraBytes,
         long estimatedOutputBytes,
         boolean fixedCopiesMode,
+        String copyStrategy,
+        BranchSummary branchSummary,
         String suggestedOutputPath,
         List<PathResponse> targetPaths) {
 
@@ -31,15 +33,23 @@ record PlanResponse(
                 context.plan().residualExtraBytes(),
                 context.plan().estimatedOutputBytes(),
                 context.plan().fixedCopiesMode(),
+                context.options().branchMode() ? "branches" : "records",
+                context.plan().branches() == null ? null : new BranchSummary(
+                        context.plan().branches().rootCount(),
+                        context.plan().branches().copiedPersonCount(),
+                        context.plan().branches().preservedPersonCount()),
                 context.suggestedOutputPath().toString(),
                 context.plan().targetPaths().stream()
                         .map(path -> PathResponse.from(path, context.plan().repeatableRecordBytes()))
                         .toList());
     }
 
+    record BranchSummary(int preservedRoots, long copiedPersonsPerCopy, long preservedPersons) { }
+
     record PathResponse(
             String path,
             long recordCount,
+            long excludedRecordCount,
             long recordBytes,
             double byteSharePercent,
             long residualExtraBytes) {
@@ -49,6 +59,7 @@ record PlanResponse(
             return new PathResponse(
                     path.path(),
                     path.recordCount(),
+                    path.excludedRecordCount(),
                     path.recordBytes(),
                     share,
                     path.residualExtraBytes());

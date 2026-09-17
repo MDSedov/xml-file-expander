@@ -9,6 +9,8 @@ import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.security.DigestInputStream;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -38,9 +40,12 @@ public class XmlExpansionService {
             ProgressListener progressListener) throws IOException, XMLStreamException {
         validateInput(inputXml);
         ProgressListener listener = progressListener == null ? ProgressListener.NONE : progressListener;
+        SapBranchPlan branches = options.branchMode() ? SapBranchPlan.analyze(inputXml, options, listener) : null;
+        MessageDigest digest = branches == null ? null : SapBranchPlan.newDigest();
         long inputSize = Files.size(inputXml);
         LinkedHashMap<String, PathAccumulator> accumulators = new LinkedHashMap<>();
         options.targetPaths().forEach(path -> accumulators.put(path, new PathAccumulator()));
+        Set<RecordExclusion> unmatchedExclusions = new LinkedHashSet<>(options.recordExclusions());
 
         CountingOutputStream output = new CountingOutputStream(OutputStream.nullOutputStream());
         XMLStreamWriter writer = newOutputFactory()
@@ -49,7 +54,8 @@ public class XmlExpansionService {
 
         try (InputStream fileInput = Files.newInputStream(inputXml);
                 ProgressInputStream input = new ProgressInputStream(
-                        fileInput, inputSize, "PLANNING", listener)) {
+                        digest == null ? fileInput : new DigestInputStream(fileInput, digest),
+                        inputSize, "PLANNING", listener)) {
             reader = newInputFactory().createXMLStreamReader(input);
             List<String> pathStack = new ArrayList<>();
 
@@ -66,8 +72,16 @@ public class XmlExpansionService {
                         PathAccumulator accumulator = accumulators.computeIfAbsent(
                                 path, ignored -> new PathAccumulator());
                         accumulator.recordCount++;
-                        accumulator.recordBytes += bytes.length;
-                        accumulator.maxRecordBytes = Math.max(accumulator.maxRecordBytes, bytes.length);
+                        Set<RecordExclusion> matches = fragment.matchingExclusions(options.recordExclusions());
+                        unmatchedExclusions.removeAll(matches);
+                        boolean preserved = branches == null ? !matches.isEmpty() : !branches.copies(path, fragment);
+                        if (preserved) {
+                            accumulator.excludedRecordCount++;
+                        } else {
+                            long copyBytes = branches == null ? bytes.length : branches.rewrite(path, fragment, 0).bytes().length;
+                            accumulator.recordBytes += copyBytes;
+                            accumulator.maxRecordBytes = Math.max(accumulator.maxRecordBytes, copyBytes);
+                        }
                         pathStack.removeLast();
                     } else {
                         writeStartElement(reader, writer);
@@ -82,6 +96,7 @@ public class XmlExpansionService {
                 reader.next();
             }
             writer.flush();
+            if (branches != null) branches.verifyDigest(digest);
         } finally {
             if (reader != null) {
                 reader.close();
@@ -97,11 +112,27 @@ public class XmlExpansionService {
             throw new IllegalArgumentException(
                     "В XML не найдены указанные пути записей: " + String.join(", ", missingPaths));
         }
+        if (!unmatchedExclusions.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Не найдены записи для условий исключения: "
+                            + unmatchedExclusions.stream()
+                                    .map(rule -> rule.fieldPath() + "=" + rule.value())
+                                    .collect(Collectors.joining(", ")));
+        }
 
         long repeatableBytes = accumulators.values().stream()
                 .mapToLong(value -> value.recordBytes)
                 .sum();
         if (repeatableBytes <= 0) {
+            if (branches != null) {
+                throw new IllegalArgumentException("Нет записей для копирования ветвей: найдены только корни "
+                        + "или сохранённые записи. Проверьте дерево и настройки связей сотрудников.");
+            }
+            if (accumulators.values().stream().anyMatch(value -> value.recordCount > 0)) {
+                throw new IllegalArgumentException(
+                        "Все найденные записи исключены из размножения. "
+                                + "Измените условия в поле «Записи без дополнительных копий».");
+            }
             throw new IllegalArgumentException(
                     "Коллекции для расширения не найдены. Ожидались пути вида "
                             + options.autoParent() + "/*/" + options.autoItem());
@@ -125,18 +156,24 @@ public class XmlExpansionService {
             long extraNeeded = Math.max(0, requestedTarget - originalBytes);
             fullCopies = extraNeeded / repeatableBytes;
             residualBytes = extraNeeded % repeatableBytes;
+            if (branches != null && residualBytes > 0) {
+                fullCopies = Math.addExact(fullCopies, 1);
+                residualBytes = 0;
+            }
             estimatedOutput = Math.addExact(
                     originalBytes,
                     Math.addExact(
                             Math.multiplyExact(repeatableBytes, fullCopies),
                             residualBytes));
         }
+        if (branches != null) branches.checkCapacity(fullCopies);
 
         Map<String, Long> residualByPath = distributeResidual(residualBytes, accumulators);
         List<TargetPathPlan> pathPlans = accumulators.entrySet().stream()
                 .map(entry -> new TargetPathPlan(
                         entry.getKey(),
                         entry.getValue().recordCount,
+                        entry.getValue().excludedRecordCount,
                         entry.getValue().recordBytes,
                         entry.getValue().maxRecordBytes,
                         residualByPath.getOrDefault(entry.getKey(), 0L)))
@@ -152,7 +189,8 @@ public class XmlExpansionService {
                 residualBytes,
                 estimatedOutput,
                 options.fixedCopiesMode(),
-                pathPlans);
+                pathPlans,
+                branches);
     }
 
     public ExpansionResult expand(
@@ -164,6 +202,12 @@ public class XmlExpansionService {
             ProgressListener progressListener) throws IOException, XMLStreamException {
         validateInput(inputXml);
         ProgressListener listener = progressListener == null ? ProgressListener.NONE : progressListener;
+        SapBranchPlan branches = plan.branches();
+        if (options.branchMode() != (branches != null)) {
+            throw new IllegalArgumentException("Режим изменился: постройте план заново");
+        }
+        if (branches != null) branches.verifyOptions(options);
+        MessageDigest digest = branches == null ? null : SapBranchPlan.newDigest();
         Path outputXml = requestedOutput.toAbsolutePath().normalize();
         Path inputAbsolute = inputXml.toAbsolutePath().normalize();
         if (inputAbsolute.equals(outputXml)
@@ -206,7 +250,8 @@ public class XmlExpansionService {
         try {
             try (InputStream fileInput = Files.newInputStream(inputXml);
                     ProgressInputStream input = new ProgressInputStream(
-                            fileInput, inputSize, "READING", listener);
+                            digest == null ? fileInput : new DigestInputStream(fileInput, digest),
+                            inputSize, "READING", listener);
                     CountingOutputStream output = new CountingOutputStream(
                             Files.newOutputStream(temporaryOutput))) {
                 XMLStreamReader reader = newInputFactory().createXMLStreamReader(input);
@@ -227,27 +272,38 @@ public class XmlExpansionService {
                                         options.encoding(), Set.of(), 0);
                                 writeFragment(writer, output, originalFragment);
 
-                                for (long copy = 0; copy < plan.fullExtraCopiesPerRecord(); copy++) {
-                                    writeDuplicate(
-                                            fragment,
-                                            originalFragment,
-                                            options,
-                                            uniqueFields,
-                                            output,
-                                            stats);
-                                }
+                                if (branches != null) {
+                                    if (branches.copies(path, fragment)) {
+                                        for (long copy = 0; copy < plan.fullExtraCopiesPerRecord(); copy++) {
+                                            XmlFragment.Rewritten duplicate = branches.rewrite(path, fragment, copy + 1);
+                                            output.write(duplicate.bytes());
+                                            stats.duplicatesWritten++;
+                                            stats.mutatedFields += duplicate.changedFields();
+                                        }
+                                    }
+                                } else if (fragment.matchingExclusions(options.recordExclusions()).isEmpty()) {
+                                    for (long copy = 0; copy < plan.fullExtraCopiesPerRecord(); copy++) {
+                                        writeDuplicate(
+                                                fragment,
+                                                originalFragment,
+                                                options,
+                                                uniqueFields,
+                                                output,
+                                                stats);
+                                    }
 
-                                long residualLimit = residualBudgets.getOrDefault(path, 0L);
-                                long alreadyWritten = residualWritten.getOrDefault(path, 0L);
-                                if (alreadyWritten < residualLimit) {
-                                    writeDuplicate(
-                                            fragment,
-                                            originalFragment,
-                                            options,
-                                            uniqueFields,
-                                            output,
-                                            stats);
-                                    residualWritten.put(path, alreadyWritten + originalFragment.length);
+                                    long residualLimit = residualBudgets.getOrDefault(path, 0L);
+                                    long alreadyWritten = residualWritten.getOrDefault(path, 0L);
+                                    if (alreadyWritten < residualLimit) {
+                                        writeDuplicate(
+                                                fragment,
+                                                originalFragment,
+                                                options,
+                                                uniqueFields,
+                                                output,
+                                                stats);
+                                        residualWritten.put(path, alreadyWritten + originalFragment.length);
+                                    }
                                 }
                                 pathStack.removeLast();
                             } else {
@@ -273,6 +329,12 @@ public class XmlExpansionService {
                     }
                     writer.flush();
                     stats.outputBytes = output.count();
+                    if (branches != null) {
+                        branches.verifyDigest(digest);
+                        if (stats.outputBytes != plan.estimatedOutputBytes()) {
+                            throw new IllegalStateException("Размер результата не совпал с планом ветвей");
+                        }
+                    }
                 } finally {
                     writer.close();
                     reader.close();
@@ -450,7 +512,7 @@ public class XmlExpansionService {
         }
     }
 
-    private static boolean isTargetPath(String path, ExpansionOptions options) {
+    static boolean isTargetPath(String path, ExpansionOptions options) {
         if (!options.autoDiscovery()) {
             return options.targetPaths().contains(path);
         }
@@ -478,7 +540,7 @@ public class XmlExpansionService {
         return value == null ? "" : value;
     }
 
-    private static XMLInputFactory newInputFactory() {
+    static XMLInputFactory newInputFactory() {
         XMLInputFactory factory = XMLInputFactory.newFactory();
         setInputProperty(factory, XMLInputFactory.SUPPORT_DTD, false);
         setInputProperty(factory, "javax.xml.stream.isSupportingExternalEntities", false);
@@ -513,6 +575,7 @@ public class XmlExpansionService {
 
     private static final class PathAccumulator {
         private long recordCount;
+        private long excludedRecordCount;
         private long recordBytes;
         private long maxRecordBytes;
     }

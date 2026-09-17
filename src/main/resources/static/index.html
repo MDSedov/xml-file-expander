@@ -44,6 +44,14 @@
             </label>
 
             <div class="form-grid two-columns">
+                <label>
+                    <span>Что копировать</span>
+                    <select id="copy-strategy" name="copyStrategy">
+                        <option value="branches" selected>Целые ветви SAP</option>
+                        <option value="records">Отдельные записи</option>
+                    </select>
+                    <small id="strategy-description">Корни сохраняются, подразделения и должности копируются вместе со связями. Размер округляется до полной копии структуры.</small>
+                </label>
                 <fieldset>
                     <legend>Способ увеличения</legend>
                     <div class="segmented">
@@ -65,7 +73,7 @@
                 </label>
 
                 <label id="fixed-copies-group" class="hidden">
-                    <span>Дополнительных копий каждой записи</span>
+                        <span>Дополнительных копий</span>
                     <input name="fixedExtraCopies" type="number" min="0" value="1">
                     <small>Исходная запись всегда сохраняется.</small>
                 </label>
@@ -92,6 +100,17 @@
                             <button id="fill-unique-fields" type="button" class="text-button">Подставить рекомендуемые</button>
                         </span>
                         <textarea id="unique-fields" name="uniqueFields" rows="4" placeholder="Относительный путь внутри item, по одному на строку. По умолчанию значения не меняются."></textarea>
+                        <small>Рекомендуемый список меняет ID, но не определяет корневые записи и связи между ними.</small>
+                    </label>
+                    <label>
+                        <span>Записи без дополнительных копий</span>
+                        <textarea name="recordExclusions" rows="3" placeholder="Например: IDOBJ=10000001. По одному условию путь=значение на строку."></textarea>
+                        <small>В режиме ветвей корни определяются автоматически. Здесь можно явно сохранить особый корень или другую запись; ссылки на неё останутся исходными.</small>
+                    </label>
+                    <label id="branch-references-label">
+                        <span>Связи SAP</span>
+                        <textarea name="branchReferences" rows="4" placeholder="ET_PERSON/путь/к/должности=org&#10;ET_ORG/путь/к/сотруднику=person"></textarea>
+                        <small>IDOBJ, PARENT/VALUE и HRP9110/OBJID уже учитываются. Здесь задаются дополнительные связи: org — IDOBJ, person — IDPERS. Сотрудники копируются при наличии заданной связи с ET_ORG; остальные сохраняются без копий.</small>
                     </label>
                 </div>
             </details>
@@ -116,9 +135,10 @@
         <div class="metrics">
             <article><span>Исходный размер</span><strong id="metric-source">—</strong></article>
             <article><span>Оценка результата</span><strong id="metric-output">—</strong></article>
-            <article><span>Полных доп. копий</span><strong id="metric-copies">—</strong></article>
-            <article><span>Байт записей</span><strong id="metric-records">—</strong></article>
+            <article><span id="metric-copies-label">Копий структуры</span><strong id="metric-copies">—</strong></article>
+            <article><span>Объём одной копии</span><strong id="metric-records">—</strong></article>
         </div>
+        <p id="branch-summary" class="hidden"></p>
 
         <div class="table-wrap">
             <table>
@@ -126,7 +146,8 @@
                 <tr>
                     <th>Путь коллекции</th>
                     <th>Записей</th>
-                    <th>Объём</th>
+                    <th>Без копий</th>
+                    <th>Объём для копирования</th>
                     <th>Доля</th>
                 </tr>
                 </thead>

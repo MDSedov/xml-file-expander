@@ -4,8 +4,10 @@ import java.io.ByteArrayOutputStream;
 import java.math.BigInteger;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.BiFunction;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -118,6 +120,110 @@ final class XmlFragment {
                 .filter(token -> uniqueFields.contains(token.relativePath()))
                 .count();
     }
+
+    Set<RecordExclusion> matchingExclusions(List<RecordExclusion> exclusions) {
+        if (exclusions.isEmpty()) {
+            return Set.of();
+        }
+        Set<RecordExclusion> matches = new LinkedHashSet<>();
+        List<String> stack = new ArrayList<>();
+        List<StringBuilder> values = new ArrayList<>();
+        for (Token token : tokens) {
+            switch (token) {
+                case StartToken start -> {
+                    stack.add(qName(start.prefix(), start.localName()));
+                    String path = relativePath(stack);
+                    boolean selected = exclusions.stream().anyMatch(rule -> rule.fieldPath().equals(path));
+                    values.add(selected ? new StringBuilder() : null);
+                }
+                case TextToken text -> {
+                    StringBuilder fieldValue = values.getLast();
+                    if (fieldValue != null) {
+                        fieldValue.append(text.value());
+                    }
+                }
+                case EndToken ignored -> {
+                    StringBuilder fieldValue = values.removeLast();
+                    if (fieldValue != null) {
+                        String fieldPath = relativePath(stack);
+                        String value = fieldValue.toString().strip();
+                        for (RecordExclusion rule : exclusions) {
+                            if (rule.fieldPath().equals(fieldPath) && rule.value().equals(value)) {
+                                matches.add(rule);
+                            }
+                        }
+                    }
+                    stack.removeLast();
+                }
+                default -> {
+                    // Comments and processing instructions may split a field's text.
+                }
+            }
+        }
+        return matches;
+    }
+
+    List<FieldValue> fields(Set<String> selected) {
+        List<FieldValue> result = new ArrayList<>();
+        List<String> stack = new ArrayList<>();
+        List<List<Integer>> indices = new ArrayList<>();
+        for (int index = 0; index < tokens.size(); index++) {
+            switch (tokens.get(index)) {
+                case StartToken start -> {
+                    if (!indices.isEmpty() && indices.getLast() != null) {
+                        throw new IllegalArgumentException("Поле связи должно быть текстовым: " + relativePath(stack));
+                    }
+                    stack.add(qName(start.prefix(), start.localName()));
+                    indices.add(selected.contains(relativePath(stack)) ? new ArrayList<>() : null);
+                }
+                case TextToken ignored -> {
+                    if (indices.getLast() != null) {
+                        indices.getLast().add(index);
+                    }
+                }
+                case EndToken ignored -> {
+                    List<Integer> fieldIndices = indices.removeLast();
+                    if (fieldIndices != null) {
+                        StringBuilder value = new StringBuilder();
+                        fieldIndices.forEach(i -> value.append(((TextToken) tokens.get(i)).value()));
+                        result.add(new FieldValue(relativePath(stack), value.toString(), fieldIndices));
+                    }
+                    stack.removeLast();
+                }
+                default -> { }
+            }
+        }
+        return result;
+    }
+
+    Rewritten rewrite(Charset encoding, Set<String> selected,
+            BiFunction<String, String, String> mapper) throws XMLStreamException {
+        List<Token> changed = new ArrayList<>(tokens);
+        long changes = 0;
+        for (FieldValue field : fields(selected)) {
+            String trimmed = field.value().strip();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            String replacement = mapper.apply(field.path(), trimmed);
+            if (!replacement.equals(trimmed)) {
+                changes++;
+            }
+            int start = 0;
+            int end = field.value().length();
+            while (start < end && Character.isWhitespace(field.value().charAt(start))) start++;
+            while (end > start && Character.isWhitespace(field.value().charAt(end - 1))) end--;
+            String value = field.value().substring(0, start) + replacement + field.value().substring(end);
+            // Replace a logical field once even when comments or CDATA split its text events.
+            for (int i = 0; i < field.tokenIndices().size(); i++) {
+                changed.set(field.tokenIndices().get(i), new TextToken(i == 0 ? value : "", field.path(), false));
+            }
+        }
+        return new Rewritten(new XmlFragment(changed).toBytes(encoding, Set.of(), 0), changes);
+    }
+
+    record FieldValue(String path, String value, List<Integer> tokenIndices) { }
+    record Rewritten(byte[] bytes, long changedFields) { }
 
     private static StartToken readStart(XMLStreamReader reader) {
         List<NamespaceToken> namespaces = new ArrayList<>();

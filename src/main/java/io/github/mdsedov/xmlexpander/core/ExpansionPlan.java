@@ -10,9 +10,10 @@ public record ExpansionPlan(
         long residualExtraBytes,
         long estimatedOutputBytes,
         boolean fixedCopiesMode,
-        List<TargetPathPlan> targetPaths) {
+        List<TargetPathPlan> targetPaths,
+        SapBranchPlan branches) {
 
     public long maximumResidualOvershootBytes() {
-        return targetPaths.stream().mapToLong(TargetPathPlan::maxRecordBytes).sum();
+        return branches == null ? targetPaths.stream().mapToLong(TargetPathPlan::maxRecordBytes).sum() : 0;
     }
 }

@@ -16,6 +16,34 @@ const uniqueFields = document.querySelector('#unique-fields');
 let currentPlanId = null;
 let pollTimer = null;
 
+function invalidatePlan() {
+    if (!currentPlanId) return;
+    const previousPlanId = currentPlanId;
+    currentPlanId = null;
+    planPanel.classList.add('hidden');
+    startButton.disabled = true;
+    fetch(`/api/plans/${previousPlanId}`, {method: 'DELETE'}).catch(() => {});
+}
+planForm.addEventListener('input', invalidatePlan);
+planForm.addEventListener('change', invalidatePlan);
+
+const copyStrategy = document.querySelector('#copy-strategy');
+function updateCopyStrategy() {
+    const branches = copyStrategy.value === 'branches';
+    for (const field of [uniqueFields, document.querySelector('textarea[name="paths"]')]) {
+        field.disabled = branches;
+        field.closest('label').classList.toggle('hidden', branches);
+    }
+    const references = document.querySelector('textarea[name="branchReferences"]');
+    references.disabled = !branches;
+    document.querySelector('#branch-references-label').classList.toggle('hidden', !branches);
+    document.querySelector('#strategy-description').textContent = branches
+        ? 'Корни сохраняются, подразделения и должности копируются вместе со связями. Размер округляется до полной копии структуры.'
+        : 'Каждая запись копируется отдельно. Связи между записями автоматически не переназначаются.';
+}
+copyStrategy.addEventListener('change', updateCopyStrategy);
+updateCopyStrategy();
+
 document.querySelectorAll('input[name="mode"]').forEach(input => {
     input.addEventListener('change', () => {
         const fixed = input.value === 'fixed' && input.checked;
@@ -30,6 +58,7 @@ fileInput.addEventListener('change', () => {
 });
 
 document.querySelector('#fill-unique-fields').addEventListener('click', () => {
+    invalidatePlan();
     uniqueFields.value = [
         'IDOBJ',
         'DYN_ATTR/HRP9110/item/OBJID',
@@ -121,8 +150,22 @@ function renderPlan(plan) {
     document.querySelector('#metric-source').textContent = formatBytes(plan.originalSerializedBytes);
     document.querySelector('#metric-output').textContent = formatBytes(plan.estimatedOutputBytes);
     document.querySelector('#metric-copies').textContent = formatNumber(plan.fullExtraCopiesPerRecord);
+    document.querySelector('#metric-copies-label').textContent = plan.copyStrategy === 'branches'
+        ? 'Копий структуры' : 'Полных доп. копий';
     document.querySelector('#metric-records').textContent = formatBytes(plan.repeatableRecordBytes);
     document.querySelector('#output-path').value = plan.suggestedOutputPath;
+    const branchSummary = document.querySelector('#branch-summary');
+    branchSummary.classList.toggle('hidden', !plan.branchSummary);
+    if (plan.branchSummary) {
+        const summary = plan.branchSummary;
+        branchSummary.textContent = `Сохраняются корни: ${formatNumber(summary.preservedRoots)}. `
+            + `Сотрудников в каждой копии: ${formatNumber(summary.copiedPersonsPerCopy)}; `
+            + `сотрудников без копий: ${formatNumber(summary.preservedPersons)}.`;
+        if (!plan.fixedCopiesMode && plan.estimatedOutputBytes > plan.requestedTargetBytes) {
+            branchSummary.textContent += ` Для целых ветвей размер увеличен на `
+                + `${formatBytes(plan.estimatedOutputBytes - plan.requestedTargetBytes)}.`;
+        }
+    }
 
     const table = document.querySelector('#paths-table');
     table.replaceChildren();
@@ -131,6 +174,7 @@ function renderPlan(plan) {
         [
             path.path,
             formatNumber(path.recordCount),
+            formatNumber(path.excludedRecordCount),
             formatBytes(path.recordBytes),
             `${path.byteSharePercent.toFixed(2)}%`
         ].forEach(value => {

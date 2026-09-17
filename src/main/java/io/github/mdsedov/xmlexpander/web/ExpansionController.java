@@ -8,6 +8,8 @@ import java.util.UUID;
 import javax.xml.stream.XMLStreamException;
 
 import io.github.mdsedov.xmlexpander.core.ExpansionOptions;
+import io.github.mdsedov.xmlexpander.core.BranchReference;
+import io.github.mdsedov.xmlexpander.core.RecordExclusion;
 import io.github.mdsedov.xmlexpander.core.SizeParser;
 
 import org.springframework.http.MediaType;
@@ -42,7 +44,10 @@ class ExpansionController {
             @RequestParam(defaultValue = ExpansionOptions.DEFAULT_AUTO_PARENT) String autoParent,
             @RequestParam(defaultValue = ExpansionOptions.DEFAULT_AUTO_ITEM) String autoItem,
             @RequestParam(defaultValue = "") String paths,
-            @RequestParam(defaultValue = "") String uniqueFields)
+            @RequestParam(defaultValue = "") String uniqueFields,
+            @RequestParam(defaultValue = "") String recordExclusions,
+            @RequestParam(defaultValue = "records") String copyStrategy,
+            @RequestParam(defaultValue = "") String branchReferences)
             throws IOException, XMLStreamException {
         List<String> targetPaths = lines(paths);
         List<String> uniqueFieldPaths = lines(uniqueFields);
@@ -66,6 +71,13 @@ class ExpansionController {
                     uniqueFieldPaths);
         }
 
+        options = options.withRecordExclusions(lines(recordExclusions).stream()
+                .map(RecordExclusion::parse).toList());
+        if ("branches".equals(copyStrategy)) {
+            options = options.withSapBranches(lines(branchReferences).stream().map(BranchReference::parse).toList());
+        } else if (!"records".equals(copyStrategy)) {
+            throw new IllegalArgumentException("Неизвестный способ копирования");
+        }
         return PlanResponse.from(planManager.createPlan(file, options));
     }
 
